@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vipii"
-version = "0.1.1"
+version = "0.1.2"
 description = "Vietnamese PII detection with regex recognizers, validators, and context scoring."
 readme = "README.md"
 requires-python = ">=3.9"
