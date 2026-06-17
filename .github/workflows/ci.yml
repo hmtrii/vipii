@@ -58,7 +58,6 @@ jobs:
       url: https://pypi.org/p/vipii
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v4
@@ -67,3 +66,6 @@ jobs:
           path: dist/
       - name: Publish distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          username: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
