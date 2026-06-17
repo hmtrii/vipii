@@ -1,0 +1,57 @@
+recognizers:
+  - name: cccd
+    label: CCCD
+    validator: cccd
+    patterns:
+      - regex: '(?<!\d)\d{12}(?!\d)'
+        context_words: ["cccd", "căn cước", "can cuoc", "định danh", "dinh danh"]
+        base_score: 0.55
+  - name: cmnd
+    label: CMND
+    validator: cmnd
+    patterns:
+      - regex: '(?<!\d)\d{9}(?!\d)'
+        context_words: ["cmnd", "chứng minh", "chung minh", "số cmnd"]
+        base_score: 0.45
+  - name: phone_number
+    label: PHONE_NUMBER
+    validator: phone
+    patterns:
+      - regex: '(?<!\d)(?:\+?84|0)(?:[\s.-]?\d){9}(?!\d)'
+        context_words: ["số điện thoại", "so dien thoai", "điện thoại", "phone", "zalo"]
+        base_score: 0.55
+  - name: mst
+    label: MST
+    validator: tax_code
+    patterns:
+      - regex: '(?<!\d)\d{10}(?:-?\d{3})?(?!\d)'
+        context_words: ["mã số thuế", "ma so thue", "mst", "tax"]
+        base_score: 0.5
+  - name: bank_card
+    label: BANK_CARD
+    validator: bank_card
+    patterns:
+      - regex: '(?<!\d)\d(?:[ -]?\d){15,18}(?!\d)'
+        context_words: ["thẻ", "the", "card", "napas", "visa", "mastercard"]
+        base_score: 0.35
+  - name: bank_account
+    label: BANK_ACCOUNT
+    validator: bank_account
+    patterns:
+      - regex: '(?<!\d)\d{8,16}(?!\d)'
+        context_words: ["tài khoản", "tai khoan", "stk", "ngân hàng", "ngan hang"]
+        base_score: 0.35
+  - name: passport
+    label: PASSPORT
+    validator: passport
+    patterns:
+      - regex: '\b[A-Z][0-9]{7,8}\b'
+        context_words: ["hộ chiếu", "ho chieu", "passport"]
+        base_score: 0.55
+  - name: vehicle_plate
+    label: VEHICLE_PLATE
+    validator: vehicle_plate
+    patterns:
+      - regex: '\b\d{2}[A-Z][A-Z0-9]?[ -.]?\d{3,5}(?:\.\d{2})?\b'
+        context_words: ["biển số", "bien so", "biển kiểm soát", "xe"]
+        base_score: 0.45

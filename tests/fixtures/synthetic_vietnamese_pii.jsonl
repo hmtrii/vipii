@@ -1,0 +1,50 @@
+{"text":"Khách hàng cung cấp CCCD 001203000123 tại quầy.","labels":["CCCD"]}
+{"text":"Hồ sơ có căn cước công dân 079187000456 cần xác minh.","labels":["CCCD"]}
+{"text":"Mã định danh cá nhân là 031099000789 trong biểu mẫu giả.","labels":["CCCD"]}
+{"text":"Bản sao CCCD số 048201001234 đã được nhận.","labels":["CCCD"]}
+{"text":"Người nộp khai báo căn cước 092176009876.","labels":["CCCD"]}
+{"text":"CMND 123456789 được ghi trong phiếu cũ.","labels":["CMND"]}
+{"text":"Số CMND của khách là 987654321.","labels":["CMND"]}
+{"text":"Chứng minh nhân dân 025468135 được dùng trong hồ sơ giả.","labels":["CMND"]}
+{"text":"Thông tin cmnd 246813579 cần được che lại.","labels":["CMND"]}
+{"text":"Khách nhập chứng minh số 135792468 trên form.","labels":["CMND"]}
+{"text":"Số điện thoại liên hệ là 0912345678.","labels":["PHONE_NUMBER"]}
+{"text":"Vui lòng gọi điện thoại 090 123 4567 để xác nhận.","labels":["PHONE_NUMBER"]}
+{"text":"Tổng đài ghi nhận phone +84 912 345 678.","labels":["PHONE_NUMBER"]}
+{"text":"Khách dùng Zalo 0987.654.321 trong yêu cầu hỗ trợ.","labels":["PHONE_NUMBER"]}
+{"text":"Số điện thoại phụ 086-123-4567 đã được thêm.","labels":["PHONE_NUMBER"]}
+{"text":"Mã số thuế doanh nghiệp là 0312345678.","labels":["MST"]}
+{"text":"MST 0101234567 được in trên hóa đơn mẫu.","labels":["MST"]}
+{"text":"Mã số thuế chi nhánh 0312345678-001 nằm trong hợp đồng giả.","labels":["MST"]}
+{"text":"Thông tin tax 0207654321 được nhập để thử nghiệm.","labels":["MST"]}
+{"text":"Cột ma so thue chứa giá trị 0401112223.","labels":["MST"]}
+{"text":"Khách nhập hộ chiếu B1234567 vào biểu mẫu.","labels":["PASSPORT"]}
+{"text":"Passport C7654321 được dùng trong ví dụ kiểm thử.","labels":["PASSPORT"]}
+{"text":"Số hộ chiếu N12345678 cần được phát hiện.","labels":["PASSPORT"]}
+{"text":"Trường ho chieu có giá trị P87654321.","labels":["PASSPORT"]}
+{"text":"Nhân viên ghi passport A11122233 cho hồ sơ giả.","labels":["PASSPORT"]}
+{"text":"Biển số xe 51F-123.45 được ghi nhận.","labels":["VEHICLE_PLATE"]}
+{"text":"Biển kiểm soát 30A-12345 xuất hiện trong biên bản.","labels":["VEHICLE_PLATE"]}
+{"text":"Thông tin bien so 43B 67890 là dữ liệu giả.","labels":["VEHICLE_PLATE"]}
+{"text":"Xe có biển số 59C1-234.56 trong ví dụ.","labels":["VEHICLE_PLATE"]}
+{"text":"Mục xe ghi 29A.12345 để kiểm thử.","labels":["VEHICLE_PLATE"]}
+{"text":"Khách dùng thẻ 9704 0000 1234 5678 để thanh toán thử.","labels":["BANK_CARD"]}
+{"text":"Card 4111 1111 1111 1111 nằm trong nội dung giả.","labels":["BANK_CARD"]}
+{"text":"Thẻ visa 4000-0000-0000-0002 được nhập vào mẫu.","labels":["BANK_CARD"]}
+{"text":"Napas 9704-1111-2222-3333 chỉ là dữ liệu kiểm thử.","labels":["BANK_CARD"]}
+{"text":"Mastercard 5555 4444 3333 2222 xuất hiện trong log giả.","labels":["BANK_CARD"]}
+{"text":"Tài khoản ngân hàng 123456789012 cần được che.","labels":["BANK_ACCOUNT"]}
+{"text":"STK 9876543210 được gửi qua tin nhắn giả.","labels":["BANK_ACCOUNT"]}
+{"text":"Số tài khoản 112233445566 tại ngân hàng thử nghiệm.","labels":["BANK_ACCOUNT"]}
+{"text":"Tai khoan 9988776655443322 được lưu trong phiếu mẫu.","labels":["BANK_ACCOUNT"]}
+{"text":"Ngân hàng xác nhận tài khoản 12345678 cho ví dụ.","labels":["BANK_ACCOUNT"]}
+{"text":"CCCD 001203000123 và số điện thoại 0912345678 cùng xuất hiện.","labels":["CCCD","PHONE_NUMBER"]}
+{"text":"Mã số thuế 0312345678 kèm hộ chiếu B1234567 trong hồ sơ.","labels":["MST","PASSPORT"]}
+{"text":"Biển số xe 51F-123.45 và CMND 123456789 cần kiểm tra.","labels":["VEHICLE_PLATE","CMND"]}
+{"text":"Tài khoản ngân hàng 123456789012 và thẻ 9704 0000 1234 5678 đều là giả.","labels":["BANK_ACCOUNT","BANK_CARD"]}
+{"text":"Khách báo CCCD 048201001234, Zalo 0987654321 và MST 0101234567.","labels":["CCCD","PHONE_NUMBER","MST"]}
+{"text":"Hộ chiếu C7654321, biển kiểm soát 30A-12345 và CMND 987654321 được nêu trong ví dụ.","labels":["PASSPORT","VEHICLE_PLATE","CMND"]}
+{"text":"Số điện thoại 0861234567, tài khoản 1234567890 tại ngân hàng mẫu.","labels":["PHONE_NUMBER","BANK_ACCOUNT"]}
+{"text":"Thẻ 4111 1111 1111 1111 liên kết với CCCD 079187000456.","labels":["BANK_CARD","CCCD"]}
+{"text":"Mã khách hàng giả có passport P87654321 và biển số 43B 67890.","labels":["PASSPORT","VEHICLE_PLATE"]}
+{"text":"Form thử nghiệm ghi ma so thue 0401112223 và so dien thoai 0901234567.","labels":["MST","PHONE_NUMBER"]}

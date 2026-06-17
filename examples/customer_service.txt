@@ -1,0 +1,6 @@
+Lưu ý: toàn bộ dữ liệu trong ví dụ này là giả.
+
+Khách hàng Trần Văn Minh gọi lên tổng đài, số điện thoại 090 123 4567.
+Bạn ấy cung cấp CCCD 001203000123 và mã số thuế cá nhân 0312345678.
+Nhân viên ghi nhận biển số xe 51F-123.45 và hộ chiếu B1234567.
+Thông tin thanh toán có thẻ 9704 0000 1234 5678 và tài khoản ngân hàng 123456789012 tại ngân hàng thử nghiệm.

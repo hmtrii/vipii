@@ -1,0 +1,7 @@
+recognizers:
+  - name: customer_id
+    label: CUSTOMER_ID
+    patterns:
+      - regex: '\bKH-\d{6}\b'
+        context_words: ["mã khách hàng", "customer id"]
+        base_score: 0.6
