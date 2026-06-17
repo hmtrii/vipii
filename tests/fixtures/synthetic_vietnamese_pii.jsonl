@@ -48,3 +48,12 @@
 {"text":"Thẻ 4111 1111 1111 1111 liên kết với CCCD 079187000456.","labels":["BANK_CARD","CCCD"]}
 {"text":"Mã khách hàng giả có passport P87654321 và biển số 43B 67890.","labels":["PASSPORT","VEHICLE_PLATE"]}
 {"text":"Form thử nghiệm ghi ma so thue 0401112223 và so dien thoai 0901234567.","labels":["MST","PHONE_NUMBER"]}
+{"text":"Email liên hệ của khách là an.nguyen@example.vn.","labels":["EMAIL_ADDRESS"]}
+{"text":"Hồ sơ nhân sự ghi ngày sinh 02/09/1990.","labels":["DATE_OF_BIRTH"]}
+{"text":"Số BHXH 1234567890 được nhập trong tờ khai giả.","labels":["SOCIAL_INSURANCE_NUMBER"]}
+{"text":"Thẻ BHYT DN1234567890123 cần được che trong ảnh chụp.","labels":["HEALTH_INSURANCE_NUMBER"]}
+{"text":"GPLX 012345678901 nằm trong biểu mẫu xác minh.","labels":["DRIVER_LICENSE"]}
+{"text":"Log ghi địa chỉ IP 192.168.1.10 của thiết bị.","labels":["IP_ADDRESS"]}
+{"text":"Mã thiết bị 550e8400-e29b-41d4-a716-446655440000 xuất hiện trong log.","labels":["DEVICE_ID"]}
+{"text":"Địa chỉ MAC AA:BB:CC:DD:EE:FF thuộc thiết bị thử nghiệm.","labels":["DEVICE_ID"]}
+{"text":"IMEI 490154203237518 được lưu trong biên bản giả.","labels":["DEVICE_ID"]}

@@ -27,7 +27,10 @@ def test_public_api_and_custom_pattern() -> None:
 def test_builtin_recognizers_cover_structured_vietnamese_pii() -> None:
     text = (
         "CCCD 001203000123, CMND 123456789, số điện thoại 0912 345 678, "
-        "mã số thuế 0312345678, hộ chiếu B1234567, biển số xe 51F-123.45, "
+        "email khach@example.vn, ngày sinh 02/09/1990, mã số thuế 0312345678, "
+        "số BHXH 1234567890, thẻ BHYT DN1234567890123, hộ chiếu B1234567, "
+        "biển số xe 51F-123.45, GPLX 012345678901, địa chỉ IP 192.168.1.10, "
+        "mã thiết bị 550e8400-e29b-41d4-a716-446655440000, "
         "thẻ 9704 0000 1234 5678 và tài khoản ngân hàng 123456789012."
     )
 
@@ -35,9 +38,16 @@ def test_builtin_recognizers_cover_structured_vietnamese_pii() -> None:
         "CCCD",
         "CMND",
         "PHONE_NUMBER",
+        "EMAIL_ADDRESS",
+        "DATE_OF_BIRTH",
         "MST",
+        "SOCIAL_INSURANCE_NUMBER",
+        "HEALTH_INSURANCE_NUMBER",
         "PASSPORT",
         "VEHICLE_PLATE",
+        "DRIVER_LICENSE",
+        "IP_ADDRESS",
+        "DEVICE_ID",
         "BANK_CARD",
         "BANK_ACCOUNT",
     }
@@ -55,6 +65,12 @@ def test_resolves_overlaps_by_score() -> None:
 
     assert len(matches) == 1
     assert matches[0].label == "CCCD"
+
+
+def test_context_specific_identifiers_win_digit_overlaps() -> None:
+    matches = PIIDetector().detect("Số BHXH 1234567890 và GPLX 001203000123.")
+
+    assert [match.label for match in matches] == ["SOCIAL_INSURANCE_NUMBER", "DRIVER_LICENSE"]
 
 
 def test_redaction_masks_detected_spans() -> None:

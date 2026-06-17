@@ -20,13 +20,47 @@ recognizers:
       - regex: '(?<!\d)(?:\+?84|0)(?:[\s.-]?\d){9}(?!\d)'
         context_words: ["số điện thoại", "so dien thoai", "điện thoại", "phone", "zalo"]
         base_score: 0.55
+  - name: email_address
+    label: EMAIL_ADDRESS
+    validator: email_address
+    patterns:
+      - regex: '\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b'
+        context_words: ["email", "e-mail", "thư điện tử", "thu dien tu", "mail"]
+        base_score: 0.75
+  - name: date_of_birth
+    label: DATE_OF_BIRTH
+    validator: date_of_birth
+    patterns:
+      - regex: '\b(?:0?[1-9]|[12][0-9]|3[01])[/.-](?:0?[1-9]|1[0-2])[/.-](?:19|20)\d{2}\b'
+        context_words: ["ngày sinh", "ngay sinh", "sinh ngày", "sinh ngay", "dob", "năm sinh"]
+        base_score: 0.3
   - name: mst
     label: MST
     validator: tax_code
+    token_window: 3
     patterns:
       - regex: '(?<!\d)\d{10}(?:-?\d{3})?(?!\d)'
         context_words: ["mã số thuế", "ma so thue", "mst", "tax"]
         base_score: 0.5
+  - name: social_insurance
+    label: SOCIAL_INSURANCE_NUMBER
+    validator: social_insurance
+    token_window: 1
+    patterns:
+      - regex: '(?<!\d)\d{10}(?!\d)'
+        context_words: ["bhxh", "bảo hiểm xã hội", "bao hiem xa hoi", "số bhxh", "so bhxh"]
+        base_score: 0.45
+  - name: health_insurance
+    label: HEALTH_INSURANCE_NUMBER
+    validator: health_insurance
+    token_window: 1
+    patterns:
+      - regex: '\b[A-Z]{2}[\s.-]?\d(?:[\s.-]?\d){12}\b'
+        context_words: ["bhyt", "bảo hiểm y tế", "bao hiem y te", "thẻ bhyt", "the bhyt"]
+        base_score: 0.5
+      - regex: '(?<!\d)\d{10}(?!\d)'
+        context_words: ["bhyt", "bảo hiểm y tế", "bao hiem y te", "thẻ bhyt", "the bhyt"]
+        base_score: 0.4
   - name: bank_card
     label: BANK_CARD
     validator: bank_card
@@ -55,3 +89,31 @@ recognizers:
       - regex: '\b\d{2}[A-Z][A-Z0-9]?[ -.]?\d{3,5}(?:\.\d{2})?\b'
         context_words: ["biển số", "bien so", "biển kiểm soát", "xe"]
         base_score: 0.45
+  - name: driver_license
+    label: DRIVER_LICENSE
+    validator: driver_license
+    token_window: 1
+    patterns:
+      - regex: '(?<!\d)\d{12}(?!\d)'
+        context_words: ["gplx", "giấy phép lái xe", "giay phep lai xe", "bằng lái", "bang lai"]
+        base_score: 0.35
+  - name: ip_address
+    label: IP_ADDRESS
+    validator: ip_address
+    patterns:
+      - regex: '\b(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b'
+        context_words: ["ip", "địa chỉ ip", "dia chi ip", "thiết bị", "thiet bi", "network"]
+        base_score: 0.65
+  - name: device_id
+    label: DEVICE_ID
+    validator: device_id
+    patterns:
+      - regex: '\b[0-9A-F]{8}-[0-9A-F]{4}-[1-5][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}\b'
+        context_words: ["device", "thiết bị", "thiet bi", "mã thiết bị", "ma thiet bi", "uuid"]
+        base_score: 0.65
+      - regex: '\b[0-9A-F]{2}(?::[0-9A-F]{2}){5}\b'
+        context_words: ["mac", "thiết bị", "thiet bi", "địa chỉ mac", "dia chi mac"]
+        base_score: 0.6
+      - regex: '(?<!\d)\d{15}(?!\d)'
+        context_words: ["imei", "device", "thiết bị", "thiet bi", "mã thiết bị", "ma thiet bi"]
+        base_score: 0.4

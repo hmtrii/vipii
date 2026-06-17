@@ -32,6 +32,39 @@ for match in matches:
     print(match.label, match.text, match.score)
 ```
 
+## Concurrent scanning
+
+`PIIDetector.detect()` runs recognizers concurrently by default when the detector has more than one
+recognizer. Use `max_workers` to cap the internal recognizer thread pool, or set `max_workers=1` to
+force sequential recognition:
+
+```python
+from vipii import PIIDetector
+
+detector = PIIDetector(max_workers=4)
+matches = detector.detect("Số điện thoại 0912 345 678 và CCCD 001203000123")
+```
+
+When scanning many independent texts, you can run calls to `detect()` concurrently from your own
+executor. Configure the detector before starting workers, then treat it as read-only while scans are
+running; do not call `add_pattern()`, `add_recognizer()`, or `add_ner_model()` concurrently with
+detection.
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+from vipii import PIIDetector
+
+texts = [
+    "Khách hàng A có số điện thoại 0912 345 678.",
+    "Khách hàng B có CCCD 001203000123.",
+]
+detector = PIIDetector(max_workers=1)
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    results = list(executor.map(detector.detect, texts))
+```
+
 ## Optional NER
 
 Regex recognizers cover structured PII. For free-form names, locations, organizations, and addresses,
@@ -81,17 +114,25 @@ recognizers:
 ```
 
 Use `validator` only when you want one of vipii's built-in validators: `cccd`, `cmnd`, `phone`,
-`tax_code`, `bank_card`, `bank_account`, `passport`, or `vehicle_plate`.
+`email_address`, `date_of_birth`, `tax_code`, `bank_card`, `bank_account`, `social_insurance`,
+`health_insurance`, `passport`, `vehicle_plate`, `driver_license`, `ip_address`, or `device_id`.
 
 ## Built-in recognizers
 
 - `CCCD` and `CMND`
 - `PHONE_NUMBER`
+- `EMAIL_ADDRESS`
+- `DATE_OF_BIRTH`
 - `MST`
+- `SOCIAL_INSURANCE_NUMBER`
+- `HEALTH_INSURANCE_NUMBER`
 - `BANK_CARD`
 - `BANK_ACCOUNT`
 - `PASSPORT`
 - `VEHICLE_PLATE`
+- `DRIVER_LICENSE`
+- `IP_ADDRESS`
+- `DEVICE_ID`
 
 The recognizers intentionally favor clear structured PII plus nearby Vietnamese context words such as
 `số điện thoại`, `cccd`, `mã số thuế`, and `biển số xe`. Names and free-form addresses can be handled
