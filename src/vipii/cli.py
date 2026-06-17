@@ -26,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--ner-model", help="Hugging Face token-classification model for NER")
     scan.add_argument("--ner-min-score", type=float, default=0.5, help="Minimum NER confidence")
     scan.add_argument(
+        "--ner-strategy",
+        choices=["always", "fallback", "uncovered", "never"],
+        default="always",
+        help="Control when NER runs: always, fallback, uncovered, or never.",
+    )
+    scan.add_argument(
         "--redact", action="store_true", help="Print redacted text instead of match lines"
     )
     return parser
@@ -44,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
             config_path=args.config,
             ner_model=args.ner_model,
             ner_min_score=args.ner_min_score,
+            ner_strategy=args.ner_strategy,
         )
 
     parser.error(f"unsupported command: {args.command}")
@@ -59,6 +66,7 @@ def scan_input(
     config_path: str | Path | None = None,
     ner_model: str | None = None,
     ner_min_score: float = 0.5,
+    ner_strategy: str = "always",
 ) -> int:
     text = read_input(value, input_type=input_type)
     return scan_text(
@@ -68,11 +76,23 @@ def scan_input(
         config_path=config_path,
         ner_model=ner_model,
         ner_min_score=ner_min_score,
+        ner_strategy=ner_strategy,
     )
 
 
-def scan_file(path: Path, *, output_format: str = "text", redact: bool = False) -> int:
-    return scan_text(path.read_text(encoding="utf-8"), output_format=output_format, redact=redact)
+def scan_file(
+    path: Path,
+    *,
+    output_format: str = "text",
+    redact: bool = False,
+    ner_strategy: str = "always",
+) -> int:
+    return scan_text(
+        path.read_text(encoding="utf-8"),
+        output_format=output_format,
+        redact=redact,
+        ner_strategy=ner_strategy,
+    )
 
 
 def scan_text(
@@ -83,11 +103,13 @@ def scan_text(
     config_path: str | Path | None = None,
     ner_model: str | None = None,
     ner_min_score: float = 0.5,
+    ner_strategy: str = "always",
 ) -> int:
     detector = PIIDetector(
         config_path=config_path,
         ner_model=ner_model,
         ner_min_score=ner_min_score,
+        ner_strategy=ner_strategy,
     )
 
     if redact:

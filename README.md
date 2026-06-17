@@ -86,6 +86,23 @@ The NER layer maps model labels such as `PER`, `LOC`, and `ORG` to `PERSON`, `LO
 `ORGANIZATION`. The model is not bundled; choose and evaluate one for your domain before production
 use.
 
+To reduce model inference cost, choose an NER strategy:
+
+- `always`: run pattern recognizers and NER on the full text.
+- `fallback`: run NER only when pattern recognizers find no structured PII.
+- `uncovered`: run pattern recognizers first, then run NER only on text outside detected spans.
+- `never`: skip NER even if a model is configured.
+
+```bash
+vipii scan "Số điện thoại 0912345678" --ner-model your-vietnamese-ner-model --ner-strategy fallback
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy uncovered
+```
+
+```python
+detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="fallback")
+detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="uncovered")
+```
+
 ## CLI
 
 ```bash
@@ -96,6 +113,8 @@ vipii scan examples/customer_service.txt --redact
 vipii scan "CCCD 001203000123" --redact
 vipii scan "Mã khách hàng KH-123456" --config examples/custom_recognizers.yml
 vipii scan "Nguyễn Văn A sống tại Hà Nội" --ner-model your-vietnamese-ner-model
+vipii scan "Số điện thoại 0912345678" --ner-model your-vietnamese-ner-model --ner-strategy fallback
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy uncovered
 ```
 
 ## YAML recognizer config

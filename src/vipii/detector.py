@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Literal
 
 from vipii.models import Pattern, PIIMatch
 from vipii.recognizers import (
@@ -13,6 +14,9 @@ from vipii.recognizers import (
     built_in_recognizers,
     custom_pattern_recognizer,
 )
+
+NERStrategy = Literal["always", "fallback", "uncovered", "never"]
+NER_STRATEGIES = {"always", "fallback", "uncovered", "never"}
 
 
 class PIIDetector:
@@ -26,10 +30,13 @@ class PIIDetector:
         include_builtins: bool = True,
         ner_model: str | None = None,
         ner_min_score: float = 0.5,
+        ner_strategy: NERStrategy = "always",
         max_workers: int | None = None,
     ) -> None:
         if max_workers is not None and max_workers < 1:
             raise ValueError("max_workers must be at least 1")
+        if ner_strategy not in NER_STRATEGIES:
+            raise ValueError("ner_strategy must be 'always', 'fallback', 'uncovered', or 'never'")
         if recognizers is None:
             recognizers = built_in_recognizers() if include_builtins else []
         if config_path:
@@ -42,6 +49,7 @@ class PIIDetector:
                 NERRecognizer(model_name=ner_model, min_score=ner_min_score),
             ]
         self.registry = RecognizerRegistry(recognizers=recognizers)
+        self.ner_strategy = ner_strategy
         self.max_workers = max_workers
 
     @classmethod
@@ -61,6 +69,14 @@ class PIIDetector:
         recognizers = list(self.registry)
         if not recognizers:
             return []
+        if self.ner_strategy != "always":
+            candidates = recognize_with_ner_strategy(
+                recognizers,
+                text,
+                strategy=self.ner_strategy,
+                max_workers=self.max_workers,
+            )
+            return resolve_overlaps(candidates)
         if len(recognizers) == 1 or self.max_workers == 1:
             candidates = recognize_sequentially(recognizers, text)
         else:
@@ -94,6 +110,90 @@ def recognize_concurrently(
         for matches in executor.map(lambda recognizer: recognizer.recognize(text), recognizers):
             candidates.extend(matches)
     return candidates
+
+
+def recognize_with_ner_strategy(
+    recognizers: list[Recognizer],
+    text: str,
+    *,
+    strategy: NERStrategy,
+    max_workers: int | None = None,
+) -> list[PIIMatch]:
+    ner_recognizers = [recognizer for recognizer in recognizers if is_ner_recognizer(recognizer)]
+    non_ner_recognizers = [
+        recognizer for recognizer in recognizers if not is_ner_recognizer(recognizer)
+    ]
+
+    candidates = recognize_recognizer_group(non_ner_recognizers, text, max_workers=max_workers)
+    if strategy == "never" or not ner_recognizers:
+        return candidates
+    if strategy == "fallback":
+        if candidates:
+            return candidates
+        return recognize_recognizer_group(ner_recognizers, text, max_workers=max_workers)
+    if strategy == "uncovered":
+        return [
+            *candidates,
+            *recognize_uncovered_text(ner_recognizers, text, candidates, max_workers=max_workers),
+        ]
+    return candidates
+
+
+def recognize_uncovered_text(
+    recognizers: list[Recognizer],
+    text: str,
+    covered_matches: list[PIIMatch],
+    *,
+    max_workers: int | None = None,
+) -> list[PIIMatch]:
+    matches: list[PIIMatch] = []
+    for offset, segment in uncovered_text_segments(text, resolve_overlaps(covered_matches)):
+        segment_matches = recognize_recognizer_group(recognizers, segment, max_workers=max_workers)
+        matches.extend(offset_match(match, offset, text) for match in segment_matches)
+    return matches
+
+
+def uncovered_text_segments(text: str, covered_matches: list[PIIMatch]) -> list[tuple[int, str]]:
+    segments = []
+    cursor = 0
+    for match in sorted(covered_matches, key=lambda item: (item.start, item.end)):
+        if cursor < match.start:
+            segment = text[cursor : match.start]
+            if segment.strip():
+                segments.append((cursor, segment))
+        cursor = max(cursor, match.end)
+    if cursor < len(text):
+        segment = text[cursor:]
+        if segment.strip():
+            segments.append((cursor, segment))
+    return segments
+
+
+def offset_match(match: PIIMatch, offset: int, text: str) -> PIIMatch:
+    start = match.start + offset
+    end = match.end + offset
+    return PIIMatch(
+        label=match.label,
+        start=start,
+        end=end,
+        text=text[start:end],
+        score=match.score,
+        recognizer=match.recognizer,
+    )
+
+
+def recognize_recognizer_group(
+    recognizers: list[Recognizer], text: str, *, max_workers: int | None = None
+) -> list[PIIMatch]:
+    if not recognizers:
+        return []
+    if len(recognizers) == 1 or max_workers == 1:
+        return recognize_sequentially(recognizers, text)
+    return recognize_concurrently(recognizers, text, max_workers=max_workers)
+
+
+def is_ner_recognizer(recognizer: Recognizer) -> bool:
+    return isinstance(recognizer, NERRecognizer)
 
 
 def resolve_overlaps(matches: list[PIIMatch]) -> list[PIIMatch]:
