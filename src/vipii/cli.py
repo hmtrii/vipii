@@ -27,9 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--ner-min-score", type=float, default=0.5, help="Minimum NER confidence")
     scan.add_argument(
         "--ner-strategy",
-        choices=["always", "fallback", "uncovered", "never"],
+        choices=["always", "fallback", "uncovered", "chunked", "never"],
         default="always",
-        help="Control when NER runs: always, fallback, uncovered, or never.",
+        help="Control when NER runs: always, fallback, uncovered, chunked, or never.",
     )
     scan.add_argument(
         "--redact", action="store_true", help="Print redacted text instead of match lines"

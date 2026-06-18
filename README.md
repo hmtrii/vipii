@@ -91,16 +91,19 @@ To reduce model inference cost, choose an NER strategy:
 - `always`: run pattern recognizers and NER on the full text.
 - `fallback`: run NER only when pattern recognizers find no structured PII.
 - `uncovered`: run pattern recognizers first, then run NER only on text outside detected spans.
+- `chunked`: split text into chunks, redact structured PII spans, then run NER on useful chunks.
 - `never`: skip NER even if a model is configured.
 
 ```bash
 vipii scan "Số điện thoại 0912345678" --ner-model your-vietnamese-ner-model --ner-strategy fallback
 vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy uncovered
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy chunked
 ```
 
 ```python
 detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="fallback")
 detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="uncovered")
+detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="chunked")
 ```
 
 ## CLI
@@ -115,6 +118,7 @@ vipii scan "Mã khách hàng KH-123456" --config examples/custom_recognizers.yml
 vipii scan "Nguyễn Văn A sống tại Hà Nội" --ner-model your-vietnamese-ner-model
 vipii scan "Số điện thoại 0912345678" --ner-model your-vietnamese-ner-model --ner-strategy fallback
 vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy uncovered
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy chunked
 ```
 
 ## YAML recognizer config

@@ -15,8 +15,10 @@ from vipii.recognizers import (
     custom_pattern_recognizer,
 )
 
-NERStrategy = Literal["always", "fallback", "uncovered", "never"]
-NER_STRATEGIES = {"always", "fallback", "uncovered", "never"}
+NERStrategy = Literal["always", "fallback", "uncovered", "chunked", "never"]
+NER_STRATEGIES = {"always", "fallback", "uncovered", "chunked", "never"}
+MIN_NER_CHUNK_LENGTH = 8
+MAX_REDACTED_CHUNK_RATIO = 0.6
 
 
 class PIIDetector:
@@ -36,7 +38,9 @@ class PIIDetector:
         if max_workers is not None and max_workers < 1:
             raise ValueError("max_workers must be at least 1")
         if ner_strategy not in NER_STRATEGIES:
-            raise ValueError("ner_strategy must be 'always', 'fallback', 'uncovered', or 'never'")
+            raise ValueError(
+                "ner_strategy must be 'always', 'fallback', 'uncovered', 'chunked', or 'never'"
+            )
         if recognizers is None:
             recognizers = built_in_recognizers() if include_builtins else []
         if config_path:
@@ -136,6 +140,11 @@ def recognize_with_ner_strategy(
             *candidates,
             *recognize_uncovered_text(ner_recognizers, text, candidates, max_workers=max_workers),
         ]
+    if strategy == "chunked":
+        return [
+            *candidates,
+            *recognize_redacted_chunks(ner_recognizers, text, candidates, max_workers=max_workers),
+        ]
     return candidates
 
 
@@ -180,6 +189,78 @@ def offset_match(match: PIIMatch, offset: int, text: str) -> PIIMatch:
         score=match.score,
         recognizer=match.recognizer,
     )
+
+
+def recognize_redacted_chunks(
+    recognizers: list[Recognizer],
+    text: str,
+    covered_matches: list[PIIMatch],
+    *,
+    max_workers: int | None = None,
+) -> list[PIIMatch]:
+    matches: list[PIIMatch] = []
+    resolved_matches = resolve_overlaps(covered_matches)
+    for offset, chunk in text_chunks(text):
+        redacted_chunk, redacted_length = redact_chunk(chunk, offset, resolved_matches)
+        if not has_ner_signal(redacted_chunk, redacted_length=redacted_length):
+            continue
+        chunk_matches = recognize_recognizer_group(
+            recognizers,
+            redacted_chunk,
+            max_workers=max_workers,
+        )
+        for match in chunk_matches:
+            shifted = offset_match(match, offset, text)
+            if shifted.text.strip() and not any(
+                spans_overlap(shifted, covered_match) for covered_match in resolved_matches
+            ):
+                matches.append(shifted)
+    return matches
+
+
+def text_chunks(text: str) -> list[tuple[int, str]]:
+    chunks = []
+    start = 0
+    for index, character in enumerate(text):
+        if character in ".!?\n\r;":
+            end = index + 1
+            chunk = text[start:end]
+            if chunk.strip():
+                chunks.append((start, chunk))
+            start = end
+    if start < len(text):
+        chunk = text[start:]
+        if chunk.strip():
+            chunks.append((start, chunk))
+    return chunks
+
+
+def redact_chunk(chunk: str, offset: int, covered_matches: list[PIIMatch]) -> tuple[str, int]:
+    characters = list(chunk)
+    redacted_length = 0
+    chunk_start = offset
+    chunk_end = offset + len(chunk)
+    for match in covered_matches:
+        start = max(match.start, chunk_start) - offset
+        end = min(match.end, chunk_end) - offset
+        if start < end:
+            characters[start:end] = " " * (end - start)
+            redacted_length += end - start
+    return "".join(characters), redacted_length
+
+
+def has_ner_signal(
+    text: str,
+    *,
+    redacted_length: int = 0,
+    min_length: int = MIN_NER_CHUNK_LENGTH,
+    max_redacted_ratio: float = MAX_REDACTED_CHUNK_RATIO,
+) -> bool:
+    if len(text.strip()) < min_length:
+        return False
+    if redacted_length / max(1, len(text)) > max_redacted_ratio:
+        return False
+    return any(character.isalpha() for character in text)
 
 
 def recognize_recognizer_group(
