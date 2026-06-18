@@ -14,6 +14,12 @@ For local development:
 pip install -e ".[dev]"
 ```
 
+For Spark DataFrame support:
+
+```bash
+pip install "vipii[spark]"
+```
+
 ## Python API
 
 ```python
@@ -63,6 +69,23 @@ detector = PIIDetector(max_workers=1)
 
 with ThreadPoolExecutor(max_workers=4) as executor:
     results = list(executor.map(detector.detect, texts))
+```
+
+## PySpark
+
+The Spark adapter is optional and keeps PySpark imports lazy. It can add detected matches or
+redacted text to a DataFrame text column:
+
+```python
+from vipii.spark import with_pii_matches, with_redacted_column
+
+df = spark.createDataFrame(
+    [("Số CCCD của tôi là 001203000123",)],
+    ["text"],
+)
+
+matches_df = with_pii_matches(df, input_col="text", output_col="pii_matches")
+redacted_df = with_redacted_column(df, input_col="text", output_col="redacted")
 ```
 
 ## Optional NER
