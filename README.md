@@ -195,22 +195,13 @@ pytest
 
 ## Publishing
 
-Build and inspect the package before uploading:
+Publishing is handled manually from GitHub Actions. On the `release` branch, run the `CI`
+workflow with **Run workflow** and enter the version to publish, for example `0.1.3`.
+
+To inspect a package locally before publishing:
 
 ```bash
 python -m pip install --upgrade build twine
 python -m build
 python -m twine check dist/*
-```
-
-Upload to TestPyPI first:
-
-```bash
-python -m twine upload --repository testpypi dist/*
-```
-
-Then upload the same checked artifacts to PyPI:
-
-```bash
-python -m twine upload dist/*
 ```
