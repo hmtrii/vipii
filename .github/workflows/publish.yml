@@ -14,6 +14,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    if: github.actor == 'hmtrii'
     environment:
       name: pypi
       url: https://pypi.org/p/vipii
