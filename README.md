@@ -195,7 +195,7 @@ pytest
 
 ## Publishing
 
-Publishing is handled manually from GitHub Actions. On the `release` branch, run the `CI`
+Publishing is handled manually from GitHub Actions. On the `release` branch, run the `Publish`
 workflow with **Run workflow** and enter the version to publish, for example `0.1.3`.
 
 To inspect a package locally before publishing:
