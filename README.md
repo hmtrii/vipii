@@ -14,6 +14,12 @@ For local development:
 pip install -e ".[dev]"
 ```
 
+For Spark DataFrame support:
+
+```bash
+pip install "vipii[spark]"
+```
+
 ## Python API
 
 ```python
@@ -65,6 +71,23 @@ with ThreadPoolExecutor(max_workers=4) as executor:
     results = list(executor.map(detector.detect, texts))
 ```
 
+## PySpark
+
+The Spark adapter is optional and keeps PySpark imports lazy. It can add detected matches or
+redacted text to a DataFrame text column:
+
+```python
+from vipii.spark import with_pii_matches, with_redacted_column
+
+df = spark.createDataFrame(
+    [("Số CCCD của tôi là 001203000123",)],
+    ["text"],
+)
+
+matches_df = with_pii_matches(df, input_col="text", output_col="pii_matches")
+redacted_df = with_redacted_column(df, input_col="text", output_col="redacted")
+```
+
 ## Optional NER
 
 Regex recognizers cover structured PII. For free-form names, locations, organizations, and addresses,
@@ -86,6 +109,26 @@ The NER layer maps model labels such as `PER`, `LOC`, and `ORG` to `PERSON`, `LO
 `ORGANIZATION`. The model is not bundled; choose and evaluate one for your domain before production
 use.
 
+To reduce model inference cost, choose an NER strategy:
+
+- `always`: run pattern recognizers and NER on the full text.
+- `fallback`: run NER only when pattern recognizers find no structured PII.
+- `uncovered`: run pattern recognizers first, then run NER only on text outside detected spans.
+- `chunked`: split text into chunks, redact structured PII spans, then run NER on useful chunks.
+- `never`: skip NER even if a model is configured.
+
+```bash
+vipii scan "Số điện thoại 0912345678" --ner-model your-vietnamese-ner-model --ner-strategy fallback
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy uncovered
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy chunked
+```
+
+```python
+detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="fallback")
+detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="uncovered")
+detector = PIIDetector(ner_model="your-vietnamese-ner-model", ner_strategy="chunked")
+```
+
 ## CLI
 
 ```bash
@@ -96,6 +139,9 @@ vipii scan examples/customer_service.txt --redact
 vipii scan "CCCD 001203000123" --redact
 vipii scan "Mã khách hàng KH-123456" --config examples/custom_recognizers.yml
 vipii scan "Nguyễn Văn A sống tại Hà Nội" --ner-model your-vietnamese-ner-model
+vipii scan "Số điện thoại 0912345678" --ner-model your-vietnamese-ner-model --ner-strategy fallback
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy uncovered
+vipii scan "Số điện thoại 0912345678 của Nguyễn Văn A" --ner-model your-vietnamese-ner-model --ner-strategy chunked
 ```
 
 ## YAML recognizer config
@@ -149,22 +195,13 @@ pytest
 
 ## Publishing
 
-Build and inspect the package before uploading:
+Publishing is handled manually from GitHub Actions. On the `release` branch, run the `Publish`
+workflow with **Run workflow** and enter the version to publish, for example `0.1.3`.
+
+To inspect a package locally before publishing:
 
 ```bash
 python -m pip install --upgrade build twine
 python -m build
 python -m twine check dist/*
-```
-
-Upload to TestPyPI first:
-
-```bash
-python -m twine upload --repository testpypi dist/*
-```
-
-Then upload the same checked artifacts to PyPI:
-
-```bash
-python -m twine upload dist/*
 ```

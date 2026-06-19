@@ -12,6 +12,7 @@ import concurrent_detection
 import custom_only
 import custom_pattern
 import ner_model
+import ner_strategies
 import redaction
 import yaml_config
 
@@ -23,6 +24,7 @@ def main() -> None:
     custom_pattern.main()
     yaml_config.main()
     custom_only.main()
+    ner_strategies.main()
     ner_model.main()
 
 
