@@ -75,6 +75,22 @@ def detect_udf(detector: PIIDetector | None = None) -> UserDefinedFunction:
     return udf(detect_text, _match_schema())
 
 
+def detect_batch(
+    texts: list[str | None], detector: PIIDetector | None = None
+) -> list[list[dict[str, object]]]:
+    """Detect PII over a batch of texts using Presidio's batch analyzer."""
+
+    active_detector = detector or _default_detector()
+    indexed = [(index, text) for index, text in enumerate(texts) if text is not None]
+    results: list[list[dict[str, object]]] = [[] for _ in texts]
+    if not indexed:
+        return results
+    batched = active_detector.detect_batch([text for _, text in indexed])
+    for (index, _), matches in zip(indexed, batched, strict=True):
+        results[index] = [match.as_dict() for match in matches]
+    return results
+
+
 def redact_udf(detector: PIIDetector | None = None, *, mask: str = "*") -> UserDefinedFunction:
     """Create a UDF that redacts detected PII in a string column."""
 

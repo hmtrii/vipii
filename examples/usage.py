@@ -8,7 +8,7 @@ Run from the repository after installing the package:
 from __future__ import annotations
 
 import basic_detection
-import concurrent_detection
+import batch_detection
 import custom_only
 import custom_pattern
 import ner_model
@@ -19,7 +19,7 @@ import yaml_config
 
 def main() -> None:
     basic_detection.main()
-    concurrent_detection.main()
+    batch_detection.main()
     redaction.main()
     custom_pattern.main()
     yaml_config.main()

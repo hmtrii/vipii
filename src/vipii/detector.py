@@ -2,17 +2,32 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Sequence
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from vipii.models import Pattern, PIIMatch
-from vipii.recognizers import (
-    NERRecognizer,
-    Recognizer,
+from presidio_analyzer import (
+    AnalyzerEngine,
+    EntityRecognizer,
     RecognizerRegistry,
+    RecognizerResult,
+)
+
+from vipii.models import Pattern, PIIMatch
+from vipii.nlp import VipiiNlpEngine, create_nlp_engine
+from vipii.presidio import (
+    LANGUAGE,
+    build_analyzer,
+    build_batch_analyzer,
+    match_from_result,
+    result_from_match,
+)
+from vipii.recognizers import (
+    Recognizer,
     built_in_recognizers,
     custom_pattern_recognizer,
+    ner_recognizer,
 )
 
 NERStrategy = Literal["always", "fallback", "uncovered", "chunked", "never"]
@@ -22,7 +37,7 @@ MAX_REDACTED_CHUNK_RATIO = 0.6
 
 
 class PIIDetector:
-    """Detect Vietnamese structured PII with built-in and custom recognizers."""
+    """Detect Vietnamese PII through a Presidio analyzer engine."""
 
     def __init__(
         self,
@@ -33,10 +48,9 @@ class PIIDetector:
         ner_model: str | None = None,
         ner_min_score: float = 0.5,
         ner_strategy: NERStrategy = "always",
-        max_workers: int | None = None,
+        score_threshold: float = 0.0,
+        nlp_engine: str | VipiiNlpEngine | None = None,
     ) -> None:
-        if max_workers is not None and max_workers < 1:
-            raise ValueError("max_workers must be at least 1")
         if ner_strategy not in NER_STRATEGIES:
             raise ValueError(
                 "ner_strategy must be 'always', 'fallback', 'uncovered', 'chunked', or 'never'"
@@ -50,116 +64,226 @@ class PIIDetector:
         if ner_model:
             recognizers = [
                 *recognizers,
-                NERRecognizer(model_name=ner_model, min_score=ner_min_score),
+                ner_recognizer(ner_model, min_score=ner_min_score),
             ]
-        self.registry = RecognizerRegistry(recognizers=recognizers)
+        self.recognizers = list(recognizers)
         self.ner_strategy = ner_strategy
-        self.max_workers = max_workers
+        self.score_threshold = score_threshold
+        # Build once and share: tokenizers can be expensive to construct.
+        self.nlp_engine = create_nlp_engine(nlp_engine)
+        self._analyzer: AnalyzerEngine | None = None
+        self._pattern_analyzer: AnalyzerEngine | None = None
+        self._ner_analyzer: AnalyzerEngine | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path, *, include_builtins: bool = True) -> PIIDetector:
         return cls(config_path=path, include_builtins=include_builtins)
 
+    # -- recognizer views ------------------------------------------------
+
+    @property
+    def pattern_recognizers(self) -> list[Recognizer]:
+        return [r for r in self.recognizers if not is_ner_recognizer(r)]
+
+    @property
+    def ner_recognizers(self) -> list[Recognizer]:
+        return [r for r in self.recognizers if is_ner_recognizer(r)]
+
+    # -- analyzers -------------------------------------------------------
+
+    @property
+    def analyzer(self) -> AnalyzerEngine:
+        """Engine over every recognizer."""
+        if self._analyzer is None:
+            self._analyzer = self.build_engine(self.recognizers)
+        return self._analyzer
+
+    @property
+    def pattern_analyzer(self) -> AnalyzerEngine:
+        """Engine over the pattern recognizers alone.
+
+        The NER strategies run patterns first, then decide whether — and on what
+        text — to run the model. Presidio cannot restrict ``analyze()`` to part of
+        a registry, so that subset needs its own engine. When there is no NER
+        recognizer to leave out, the full engine is reused.
+        """
+        if not self.ner_recognizers:
+            return self.analyzer
+        if self._pattern_analyzer is None:
+            self._pattern_analyzer = self.build_engine(self.pattern_recognizers)
+        return self._pattern_analyzer
+
+    @property
+    def ner_analyzer(self) -> AnalyzerEngine:
+        """Engine over the model-backed recognizers alone."""
+        if self._ner_analyzer is None:
+            self._ner_analyzer = self.build_engine(self.ner_recognizers)
+        return self._ner_analyzer
+
+    def build_engine(self, recognizers: list[Recognizer]) -> AnalyzerEngine:
+        return build_analyzer(
+            recognizers,
+            nlp_engine=self.nlp_engine,
+            default_score_threshold=self.score_threshold,
+        )
+
+    @property
+    def registry(self) -> RecognizerRegistry:
+        return self.analyzer.registry
+
+    def supported_entities(self) -> list[str]:
+        return self.analyzer.get_supported_entities(language=LANGUAGE)
+
+    def _invalidate(self) -> None:
+        self._analyzer = None
+        self._pattern_analyzer = None
+        self._ner_analyzer = None
+
+    # -- configuration ---------------------------------------------------
+
     def add_pattern(self, pattern: Pattern) -> None:
-        self.registry.add(custom_pattern_recognizer(pattern))
+        self.add_recognizer(custom_pattern_recognizer(pattern))
 
     def add_recognizer(self, recognizer: Recognizer) -> None:
-        self.registry.add(recognizer)
+        self.recognizers.append(recognizer)
+        self._invalidate()
 
-    def add_ner_model(self, model_name: str, *, min_score: float = 0.5) -> None:
-        self.registry.add(NERRecognizer(model_name=model_name, min_score=min_score))
+    def add_ner_model(self, model_name: str, *, min_score: float = 0.5, **kwargs: object) -> None:
+        self.add_recognizer(ner_recognizer(model_name, min_score=min_score, **kwargs))
 
-    def detect(self, text: str) -> list[PIIMatch]:
-        recognizers = list(self.registry)
-        if not recognizers:
+    # -- detection -------------------------------------------------------
+
+    def analyze(
+        self, text: str, *, analyzer: AnalyzerEngine | None = None, **kwargs: object
+    ) -> list[RecognizerResult]:
+        """Run Presidio and return raw results. Defaults to the full engine."""
+        engine = self.analyzer if analyzer is None else analyzer
+        return engine.analyze(text=text, language=LANGUAGE, **kwargs)  # type: ignore[arg-type]
+
+    def detect(
+        self,
+        text: str,
+        *,
+        entities: list[str] | None = None,
+        score_threshold: float | None = None,
+        allow_list: list[str] | None = None,
+        allow_list_match: str = "exact",
+        ad_hoc_recognizers: list[EntityRecognizer] | None = None,
+        context: list[str] | None = None,
+        return_decision_process: bool = False,
+    ) -> list[PIIMatch]:
+        if not self.recognizers and not ad_hoc_recognizers:
             return []
-        if self.ner_strategy != "always":
-            candidates = recognize_with_ner_strategy(
-                recognizers,
-                text,
-                strategy=self.ner_strategy,
-                max_workers=self.max_workers,
-            )
-            return resolve_overlaps(candidates)
-        if len(recognizers) == 1 or self.max_workers == 1:
-            candidates = recognize_sequentially(recognizers, text)
+        options = {
+            "entities": entities,
+            "score_threshold": score_threshold,
+            "allow_list": allow_list,
+            "allow_list_match": allow_list_match,
+            "ad_hoc_recognizers": ad_hoc_recognizers,
+            "context": context,
+            "return_decision_process": return_decision_process,
+        }
+        if self.ner_strategy == "always":
+            candidates = self.detect_matches(text, self.analyzer, options)
         else:
-            candidates = recognize_concurrently(recognizers, text, max_workers=self.max_workers)
+            candidates = self.detect_with_ner_strategy(text, options)
         return resolve_overlaps(candidates)
 
-    def redact(self, text: str, mask: str = "*") -> str:
-        matches = self.detect(text)
-        redacted = []
-        cursor = 0
-        for match in matches:
-            redacted.append(text[cursor : match.start])
-            redacted.append(mask * max(1, match.end - match.start))
-            cursor = match.end
-        redacted.append(text[cursor:])
-        return "".join(redacted)
+    def detect_batch(self, texts: Sequence[str], **kwargs: object) -> list[list[PIIMatch]]:
+        """Detect PII across many texts.
 
+        Uses Presidio's ``BatchAnalyzerEngine`` for the default ``always``
+        strategy; the segment-based NER strategies are applied per text.
+        """
+        if self.ner_strategy != "always" or kwargs:
+            return [self.detect(text, **kwargs) for text in texts]  # type: ignore[arg-type]
+        batch = build_batch_analyzer(self.analyzer)
+        results = batch.analyze_iterator(texts=list(texts), language=LANGUAGE)
+        return [
+            resolve_overlaps([match_from_result(text, result) for result in text_results])
+            for text, text_results in zip(texts, results, strict=True)
+        ]
 
-def recognize_sequentially(recognizers: list[Recognizer], text: str) -> list[PIIMatch]:
-    candidates: list[PIIMatch] = []
-    for recognizer in recognizers:
-        candidates.extend(recognizer.recognize(text))
-    return candidates
-
-
-def recognize_concurrently(
-    recognizers: list[Recognizer], text: str, *, max_workers: int | None = None
-) -> list[PIIMatch]:
-    candidates: list[PIIMatch] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for matches in executor.map(lambda recognizer: recognizer.recognize(text), recognizers):
-            candidates.extend(matches)
-    return candidates
-
-
-def recognize_with_ner_strategy(
-    recognizers: list[Recognizer],
-    text: str,
-    *,
-    strategy: NERStrategy,
-    max_workers: int | None = None,
-) -> list[PIIMatch]:
-    ner_recognizers = [recognizer for recognizer in recognizers if is_ner_recognizer(recognizer)]
-    non_ner_recognizers = [
-        recognizer for recognizer in recognizers if not is_ner_recognizer(recognizer)
-    ]
-
-    candidates = recognize_recognizer_group(non_ner_recognizers, text, max_workers=max_workers)
-    if strategy == "never" or not ner_recognizers:
-        return candidates
-    if strategy == "fallback":
-        if candidates:
+    def detect_with_ner_strategy(self, text: str, options: dict[str, object]) -> list[PIIMatch]:
+        strategy = self.ner_strategy
+        candidates = self.detect_matches(text, self.pattern_analyzer, options)
+        if strategy == "never" or not self.ner_recognizers:
             return candidates
-        return recognize_recognizer_group(ner_recognizers, text, max_workers=max_workers)
-    if strategy == "uncovered":
-        return [
-            *candidates,
-            *recognize_uncovered_text(ner_recognizers, text, candidates, max_workers=max_workers),
-        ]
-    if strategy == "chunked":
-        return [
-            *candidates,
-            *recognize_redacted_chunks(ner_recognizers, text, candidates, max_workers=max_workers),
-        ]
-    return candidates
+        if strategy == "fallback":
+            if candidates:
+                return candidates
+            return self.detect_ner(text, options)
+        if strategy == "uncovered":
+            return [*candidates, *self.recognize_uncovered_text(text, candidates, options)]
+        if strategy == "chunked":
+            return [*candidates, *self.recognize_redacted_chunks(text, candidates, options)]
+        return candidates
 
+    def detect_matches(
+        self, text: str, analyzer: AnalyzerEngine, options: dict[str, object]
+    ) -> list[PIIMatch]:
+        return [
+            match_from_result(text, result)
+            for result in self.analyze(text, analyzer=analyzer, **options)
+        ]
 
-def recognize_uncovered_text(
-    recognizers: list[Recognizer],
-    text: str,
-    covered_matches: list[PIIMatch],
-    *,
-    max_workers: int | None = None,
-) -> list[PIIMatch]:
-    matches: list[PIIMatch] = []
-    for offset, segment in uncovered_text_segments(text, resolve_overlaps(covered_matches)):
-        segment_matches = recognize_recognizer_group(recognizers, segment, max_workers=max_workers)
-        matches.extend(offset_match(match, offset, text) for match in segment_matches)
-    return matches
+    def detect_ner(self, text: str, options: dict[str, object]) -> list[PIIMatch]:
+        return self.detect_matches(text, self.ner_analyzer, options)
+
+    def recognize_uncovered_text(
+        self, text: str, covered_matches: list[PIIMatch], options: dict[str, object]
+    ) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for offset, segment in uncovered_text_segments(text, resolve_overlaps(covered_matches)):
+            for match in self.detect_ner(segment, options):
+                matches.append(offset_match(match, offset, text))
+        return matches
+
+    def recognize_redacted_chunks(
+        self, text: str, covered_matches: list[PIIMatch], options: dict[str, object]
+    ) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        resolved_matches = resolve_overlaps(covered_matches)
+        for offset, chunk in text_chunks(text):
+            redacted_chunk, redacted_length = redact_chunk(chunk, offset, resolved_matches)
+            if not has_ner_signal(redacted_chunk, redacted_length=redacted_length):
+                continue
+            for match in self.detect_ner(redacted_chunk, options):
+                shifted = offset_match(match, offset, text)
+                if shifted.text.strip() and not any(
+                    spans_overlap(shifted, covered_match) for covered_match in resolved_matches
+                ):
+                    matches.append(shifted)
+        return matches
+
+    # -- redaction -------------------------------------------------------
+
+    def redact(self, text: str, mask: str = "*", *, operators: dict | None = None) -> str:
+        """Redact detected spans with Presidio's anonymizer.
+
+        Defaults to masking every character of each span, matching vipii's
+        historical behaviour. Pass ``operators`` to use any Presidio operator
+        (``replace``, ``hash``, ``encrypt``, ...).
+        """
+        from presidio_anonymizer import AnonymizerEngine
+        from presidio_anonymizer.entities import OperatorConfig
+
+        matches = self.detect(text)
+        if not matches:
+            return text
+        if operators is None:
+            operators = {
+                "DEFAULT": OperatorConfig(
+                    "mask",
+                    {"masking_char": mask, "chars_to_mask": len(text), "from_end": False},
+                )
+            }
+        result = AnonymizerEngine().anonymize(
+            text=text,
+            analyzer_results=[result_from_match(match) for match in matches],
+            operators=operators,
+        )
+        return result.text
 
 
 def uncovered_text_segments(text: str, covered_matches: list[PIIMatch]) -> list[tuple[int, str]]:
@@ -189,33 +313,6 @@ def offset_match(match: PIIMatch, offset: int, text: str) -> PIIMatch:
         score=match.score,
         recognizer=match.recognizer,
     )
-
-
-def recognize_redacted_chunks(
-    recognizers: list[Recognizer],
-    text: str,
-    covered_matches: list[PIIMatch],
-    *,
-    max_workers: int | None = None,
-) -> list[PIIMatch]:
-    matches: list[PIIMatch] = []
-    resolved_matches = resolve_overlaps(covered_matches)
-    for offset, chunk in text_chunks(text):
-        redacted_chunk, redacted_length = redact_chunk(chunk, offset, resolved_matches)
-        if not has_ner_signal(redacted_chunk, redacted_length=redacted_length):
-            continue
-        chunk_matches = recognize_recognizer_group(
-            recognizers,
-            redacted_chunk,
-            max_workers=max_workers,
-        )
-        for match in chunk_matches:
-            shifted = offset_match(match, offset, text)
-            if shifted.text.strip() and not any(
-                spans_overlap(shifted, covered_match) for covered_match in resolved_matches
-            ):
-                matches.append(shifted)
-    return matches
 
 
 def text_chunks(text: str) -> list[tuple[int, str]]:
@@ -263,21 +360,42 @@ def has_ner_signal(
     return any(character.isalpha() for character in text)
 
 
-def recognize_recognizer_group(
-    recognizers: list[Recognizer], text: str, *, max_workers: int | None = None
-) -> list[PIIMatch]:
-    if not recognizers:
-        return []
-    if len(recognizers) == 1 or max_workers == 1:
-        return recognize_sequentially(recognizers, text)
-    return recognize_concurrently(recognizers, text, max_workers=max_workers)
+@lru_cache(maxsize=1)
+def ner_recognizer_types() -> tuple[type, ...]:
+    """Presidio recognizer classes the NER strategies treat as model-backed.
+
+    Presidio imports these lazily with ``None`` sentinels when transformers/torch
+    are absent, so missing optional dependencies are not an error here.
+    """
+    import presidio_analyzer.predefined_recognizers as predefined
+
+    types: list[type] = []
+
+    for name in ("HuggingFaceNerRecognizer", "SpacyRecognizer", "GLiNERRecognizer"):
+        candidate = getattr(predefined, name, None)
+        if isinstance(candidate, type):
+            types.append(candidate)
+    return tuple(types)
 
 
 def is_ner_recognizer(recognizer: Recognizer) -> bool:
-    return isinstance(recognizer, NERRecognizer)
+    """Report whether a recognizer is model-backed rather than pattern-backed.
+
+    Set ``vipii_is_ner`` on a recognizer to override the classification.
+    """
+    override = getattr(recognizer, "vipii_is_ner", None)
+    if override is not None:
+        return bool(override)
+    return isinstance(recognizer, ner_recognizer_types())
 
 
 def resolve_overlaps(matches: list[PIIMatch]) -> list[PIIMatch]:
+    """Resolve cross-entity span overlaps.
+
+    Presidio's ``remove_duplicates`` only collapses containment within a single
+    entity type, so vipii still arbitrates between different labels covering the
+    same span.
+    """
     ordered = sorted(
         matches, key=lambda item: (item.start, -item.score, -(item.end - item.start), item.label)
     )

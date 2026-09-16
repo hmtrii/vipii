@@ -6,15 +6,20 @@
 - The public API is exported from `src/vipii/__init__.py`.
 - Core modules:
   - `models.py`: frozen dataclasses for `PIIMatch` and regex `Pattern`.
-  - `recognizers.py`: built-in Vietnamese structured PII recognizers, validators, and registry.
+  - `recognizers/`: Vietnamese recognizers. `pattern.py` subclasses Presidio's
+    `PatternRecognizer`; `ner.py` configures Presidio's `HuggingFaceNerRecognizer`;
+    `validators.py` holds the `valid_*` checks.
+  - `recognizers/builtin/`: one module per built-in entity, each exposing `recognizer()`.
+  - `config.py`: YAML loading for user-supplied recognizer configs only.
   - `scoring.py`: context-window normalization and score boosting.
-  - `detector.py`: detector orchestration, overlap resolution, and redaction.
+  - `detector.py`: `PIIDetector` over Presidio's `AnalyzerEngine`, plus overlap resolution.
   - `cli.py`: `argparse` CLI for `vipii scan`.
-  - `presidio.py`: optional Presidio adapter; importing the module should not require Presidio.
+  - `presidio.py`: engine wiring — context enhancer, registry and analyzer builders.
+  - `nlp.py`: `NlpEngine` implementations and the `create_nlp_engine` factory.
 
 ## Coding Style
 
-- Target Python is `>=3.9`; keep compatibility with Python 3.9 through 3.13.
+- Target Python is `>=3.10`; keep compatibility with Python 3.10 through 3.13.
 - Use `from __future__ import annotations` in Python modules.
 - Prefer small, typed functions and dataclasses over large classes.
 - Use absolute imports from `vipii`, matching the existing modules.
@@ -35,12 +40,38 @@
 
 ## Architecture Patterns
 
+- Presidio is the core. vipii recognizers *are* `presidio_analyzer` recognizers; there is no
+  adapter layer, and `PIIDetector` delegates to `AnalyzerEngine.analyze()`.
 - Built-in recognizers are regex `Pattern` objects plus optional validators and context words.
-- Scores start from `base_score` and are boosted by nearby context words in `scoring.py`.
-- `PIIDetector.detect()` gathers candidates from the registry, then resolves overlapping spans.
-- `PIIDetector.redact()` masks detected spans while preserving surrounding text.
-- Custom patterns are added through `PIIDetector.add_pattern()` and wrapped as a recognizer.
-- Optional dependencies should stay lazy, as in `presidio.py`.
+- Each built-in lives in its own module under `recognizers/builtin/`, named after the
+  recognizer, exposing a `recognizer()` factory that returns a fresh instance. Register a new
+  one by adding it to `BUILTIN_MODULES` in `recognizers/builtin/__init__.py`; a test asserts
+  every module in the package is registered.
+- Validators map to `invalidate_result()`, never `validate_result()`: a truthy `validate_result`
+  forces the score to `MAX_SCORE` and would discard base scores and context boosting.
+- Pattern regexes are compiled with `regex.IGNORECASE` only. Presidio defaults to `I|M|S`, which
+  would change what `.`, `^` and `$` match.
+- Context boosting lives in `PatternRecognizer.enhance_using_context()`, not Presidio's global
+  `LemmaContextAwareEnhancer`, because context words are per pattern and token windows are per
+  recognizer. The global enhancer is disabled via `VipiiContextAwareEnhancer`.
+- NLP engines are registered in `NLP_ENGINES` and built by `create_nlp_engine()`; `underthesea` is
+  the default. Add new engines by subclassing `VipiiNlpEngine` and implementing `tokenize()`.
+- Engine tokens feed `scoring.context_window()` via `spans=`, so the tokenizer determines how far a
+  token window reaches. Tokenizers without offsets must realign against the source text.
+- An empty registry must keep `NoopEntityRecognizer`: `AnalyzerEngine` loads Presidio's US/EU
+  default recognizers whenever `registry.recognizers` is falsy.
+- `PIIDetector` exposes three lazily built engines: `analyzer` (everything), `pattern_analyzer`
+  and `ner_analyzer`. The NER strategies need the split because Presidio cannot restrict
+  `analyze()` to part of a registry; `pattern_analyzer` reuses `analyzer` when no NER
+  recognizer has to be excluded. `add_recognizer()` invalidates all three.
+- `PIIDetector.detect()` resolves cross-entity overlaps that Presidio's `remove_duplicates` leaves.
+- vipii does not implement NER. `recognizers/ner.py` only configures Presidio's
+  `HuggingFaceNerRecognizer` with Vietnamese label defaults via `ner_recognizer()`.
+- NER strategies classify recognizers via `is_ner_recognizer()`, which matches Presidio's
+  model-backed recognizer classes. Set `vipii_is_ner` on a recognizer to override; tests and
+  examples use that to stand in for a model without transformers and torch.
+- `PIIDetector.redact()` delegates to `presidio-anonymizer`.
+- Optional dependencies (`ner`, `spark`) should stay lazy.
 
 ## Testing Style
 
@@ -72,4 +103,4 @@ Run tests:
 pytest
 ```
 
-CI runs the same Ruff and pytest commands on Python 3.9 and 3.13.
+CI runs the same Ruff and pytest commands on Python 3.10 and 3.13.

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from vipii.recognizers.base import Recognizer
-from vipii.recognizers.ner import NERRecognizer
+from vipii.recognizers.ner import VIETNAMESE_LABEL_MAPPING, ner_recognizer
 from vipii.recognizers.pattern import PatternRecognizer, custom_pattern_recognizer
-from vipii.recognizers.registry import RecognizerRegistry, built_in_recognizers
+from vipii.recognizers.registry import built_in_recognizers
 from vipii.recognizers.validators import (
     Validator,
     valid_bank_account,
@@ -27,10 +27,10 @@ from vipii.recognizers.validators import (
 )
 
 __all__ = [
-    "NERRecognizer",
+    "VIETNAMESE_LABEL_MAPPING",
+    "ner_recognizer",
     "PatternRecognizer",
     "Recognizer",
-    "RecognizerRegistry",
     "Validator",
     "built_in_recognizers",
     "custom_pattern_recognizer",

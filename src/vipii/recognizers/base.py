@@ -1,17 +1,10 @@
-"""Recognizer protocol shared by all recognizer implementations."""
+"""Recognizer type shared by all recognizer implementations."""
 
 from __future__ import annotations
 
-from typing import Protocol
+from presidio_analyzer import EntityRecognizer
 
-from vipii.models import PIIMatch
+# vipii recognizers are Presidio recognizers; there is no adapter layer.
+Recognizer = EntityRecognizer
 
-
-class Recognizer(Protocol):
-    """Common interface for pattern and model-backed recognizers."""
-
-    name: str
-
-    def recognize(self, text: str) -> list[PIIMatch]:
-        """Return PII matches for text."""
-        ...
+__all__ = ["Recognizer"]
