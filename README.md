@@ -24,9 +24,8 @@ detector.add_pattern(
     Pattern(label="CUSTOMER_ID", regex=r"\bKH-\d{6}\b", context_words=["mã khách hàng"])
 )
 
-matches = detector.detect(
-    "Khách hàng Nguyễn Văn A, số điện thoại 0912 345 678, CCCD 001203000123."
-)
+text = "Khách hàng Nguyễn Văn A, số điện thoại 0912 345 678, CCCD 001203000123."
+matches = detector.detect(text)
 
 for match in matches:
     print(match.label, match.text, match.score)
