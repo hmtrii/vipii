@@ -58,3 +58,4 @@ Thumbs.db
 
 # Local example/runtime output
 *.log
+dev/
