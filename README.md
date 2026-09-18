@@ -67,8 +67,8 @@ Each built-in entity is one module under `vipii/recognizers/builtin/`, exposing 
 ```python
 from vipii.recognizers.builtin import built_in_recognizers, cccd
 
-cccd.recognizer()          # just this one
-built_in_recognizers()     # all fifteen
+cccd.recognizer()  # just this one
+built_in_recognizers()  # all fifteen
 ```
 
 Add a new one by dropping a module in that package and listing it in `BUILTIN_MODULES`.
@@ -86,9 +86,9 @@ that context scoring measures its window against. vipii ships two, selected by n
 | `regex` | no | Dependency-free Unicode word split; one token per syllable |
 
 ```python
-PIIDetector()                          # underthesea
-PIIDetector(nlp_engine="regex")        # no underthesea needed
-PIIDetector(nlp_engine=MyEngine())     # any NlpEngine instance
+PIIDetector()  # underthesea
+PIIDetector(nlp_engine="regex")  # no underthesea needed
+PIIDetector(nlp_engine=MyEngine())  # any NlpEngine instance
 ```
 
 Word segmentation matters because token windows are small. `MST` uses a 3-token window, so in
@@ -105,10 +105,10 @@ No spaCy model is involved; Presidio publishes no pretrained Vietnamese pipeline
 ```python
 detector = PIIDetector()
 
-detector.detect(text, entities=["PHONE_NUMBER", "CCCD"])   # restrict entity types
-detector.detect(text, score_threshold=0.8)                  # drop low-confidence spans
-detector.detect(text, allow_list=["0900000000"])            # never flag these values
-detector.detect(text, return_decision_process=True)         # keep analysis explanations
+detector.detect(text, entities=["PHONE_NUMBER", "CCCD"])  # restrict entity types
+detector.detect(text, score_threshold=0.8)  # drop low-confidence spans
+detector.detect(text, allow_list=["0900000000"])  # never flag these values
+detector.detect(text, return_decision_process=True)  # keep analysis explanations
 ```
 
 ### NER recognizers
@@ -148,10 +148,12 @@ classification.
 
 ```python
 detector = PIIDetector()
-results = detector.detect_batch([
-    "Khách hàng A có số điện thoại 0912 345 678.",
-    "Khách hàng B có CCCD 001203000123.",
-])
+results = detector.detect_batch(
+    [
+        "Khách hàng A có số điện thoại 0912 345 678.",
+        "Khách hàng B có CCCD 001203000123.",
+    ]
+)
 ```
 
 `PIIDetector` holds no per-call state, so you can also submit `detect()` to your own executor.
