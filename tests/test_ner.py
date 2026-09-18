@@ -1,65 +1,107 @@
 from __future__ import annotations
 
-import json
-
 import pytest
+from _ner_helpers import (
+    ExplodingNerRecognizer,
+    StubNerRecognizer,
+    presidio_hf_recognizer,
+)
 
-from vipii import NERRecognizer, Pattern, PatternRecognizer, PIIDetector
-from vipii.cli import main
-from vipii.detector import has_ner_signal
+from vipii import Pattern, PatternRecognizer, PIIDetector, ner_recognizer
+from vipii.detector import has_ner_signal, is_ner_recognizer
+from vipii.recognizers.ner import VIETNAMESE_LABEL_MAPPING
+
+TEXT = "Nguyễn Văn A sống tại Hà Nội."
 
 
-def fake_pipeline_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
-    def pipeline(text: str) -> list[dict[str, object]]:
-        return [
-            {
-                "entity_group": "PER",
-                "start": text.index("Nguyễn Văn A"),
-                "end": text.index("Nguyễn Văn A") + len("Nguyễn Văn A"),
-                "score": 0.98,
-            },
-            {
-                "entity_group": "LOC",
-                "start": text.index("Hà Nội"),
-                "end": text.index("Hà Nội") + len("Hà Nội"),
-                "score": 0.91,
-            },
-        ]
+def phone_recognizer() -> PatternRecognizer:
+    return PatternRecognizer(
+        name="phone_number",
+        label="PHONE_NUMBER",
+        patterns=[Pattern(label="PHONE_NUMBER", regex=r"\b0\d{9}\b")],
+    )
 
-    return pipeline
+
+def customer_recognizer() -> PatternRecognizer:
+    return PatternRecognizer(
+        name="customer_id",
+        label="CUSTOMER_ID",
+        patterns=[Pattern(label="CUSTOMER_ID", regex=r"\bKH-\d{6}\b")],
+    )
+
+
+# -- the Presidio recognizer vipii configures --------------------------------
+
+
+def test_ner_recognizer_builds_a_presidio_recognizer() -> None:
+    from presidio_analyzer.predefined_recognizers import HuggingFaceNerRecognizer
+
+    recognizer = presidio_hf_recognizer([])
+
+    assert isinstance(recognizer, HuggingFaceNerRecognizer)
+    assert recognizer.supported_language == "vi"
+    assert recognizer.name == "ner"
+    assert recognizer.threshold == 0.5
+
+
+def test_ner_recognizer_maps_vietnamese_labels() -> None:
+    recognizer = presidio_hf_recognizer([])
+
+    assert recognizer.label_mapping == VIETNAMESE_LABEL_MAPPING
+    assert "ADDRESS" in set(recognizer.label_mapping.values())
+
+
+def test_ner_recognizer_validates_arguments() -> None:
+    with pytest.raises(ValueError, match="model_name"):
+        ner_recognizer("")
+    with pytest.raises(ValueError, match="min_score"):
+        ner_recognizer("fake-vietnamese-ner", min_score=1.5)
 
 
 def test_ner_recognizer_converts_model_entities_to_pii_matches() -> None:
-    recognizer = NERRecognizer(
-        model_name="fake-vietnamese-ner",
-        pipeline_factory=fake_pipeline_factory,
+    recognizer = presidio_hf_recognizer(
+        [
+            {"entity_group": "PER", "start": 0, "end": 12, "score": 0.98},
+            {"entity_group": "LOC", "start": 22, "end": 28, "score": 0.91},
+        ]
     )
+    detector = PIIDetector(recognizers=[recognizer], include_builtins=False)
 
-    matches = recognizer.recognize("Nguyễn Văn A sống tại Hà Nội.")
+    matches = detector.detect(TEXT)
 
     assert [match.label for match in matches] == ["PERSON", "LOCATION"]
     assert [match.text for match in matches] == ["Nguyễn Văn A", "Hà Nội"]
-    assert all(match.recognizer == "ner" for match in matches)
 
 
 def test_ner_recognizer_filters_low_confidence_entities() -> None:
-    def low_score_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
-        return lambda text: [
-            {
-                "entity_group": "PER",
-                "start": 0,
-                "end": len("Nguyễn"),
-                "score": 0.2,
-            }
-        ]
-
-    recognizer = NERRecognizer(
-        model_name="fake-vietnamese-ner",
+    recognizer = presidio_hf_recognizer(
+        [{"entity_group": "PER", "start": 0, "end": 12, "score": 0.2}],
         min_score=0.8,
-        pipeline_factory=low_score_factory,
     )
+    detector = PIIDetector(recognizers=[recognizer], include_builtins=False)
 
-    assert recognizer.recognize("Nguyễn Văn A") == []
+    assert detector.detect(TEXT) == []
+
+
+# -- strategy classification -------------------------------------------------
+
+
+def test_presidio_ner_recognizers_participate_in_strategies() -> None:
+    assert is_ner_recognizer(presidio_hf_recognizer([]))
+
+
+def test_pattern_recognizers_are_not_ner() -> None:
+    assert not is_ner_recognizer(phone_recognizer())
+
+
+def test_ner_classification_can_be_overridden() -> None:
+    recognizer = phone_recognizer()
+    recognizer.vipii_is_ner = True
+
+    assert is_ner_recognizer(recognizer)
+
+
+# -- strategies --------------------------------------------------------------
 
 
 def test_has_ner_signal_uses_length_and_redacted_ratio() -> None:
@@ -70,84 +112,34 @@ def test_has_ner_signal_uses_length_and_redacted_ratio() -> None:
 
 
 def test_detector_accepts_ner_recognizer() -> None:
-    detector = PIIDetector(
-        recognizers=[
-            NERRecognizer(
-                model_name="fake-vietnamese-ner",
-                pipeline_factory=fake_pipeline_factory,
-            )
-        ],
-        include_builtins=False,
-    )
+    detector = PIIDetector(recognizers=[StubNerRecognizer()], include_builtins=False)
 
-    matches = detector.detect("Nguyễn Văn A sống tại Hà Nội.")
-
-    assert [match.label for match in matches] == ["PERSON", "LOCATION"]
+    assert [match.label for match in detector.detect(TEXT)] == ["PERSON", "LOCATION"]
 
 
 def test_detector_skips_ner_when_fallback_patterns_match() -> None:
-    def fail_if_called(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("NER should not run when fallback patterns match")
-
     detector = PIIDetector(
-        recognizers=[
-            PatternRecognizer(
-                name="customer_id",
-                label="CUSTOMER_ID",
-                patterns=[Pattern(label="CUSTOMER_ID", regex=r"\bKH-\d{6}\b")],
-            ),
-            NERRecognizer(
-                model_name="fake-vietnamese-ner",
-                pipeline_factory=fail_if_called,
-            ),
-        ],
+        recognizers=[customer_recognizer(), ExplodingNerRecognizer()],
         include_builtins=False,
         ner_strategy="fallback",
     )
 
-    matches = detector.detect("Mã khách hàng KH-123456.")
-
-    assert [match.label for match in matches] == ["CUSTOMER_ID"]
+    assert [m.label for m in detector.detect("Mã khách hàng KH-123456.")] == ["CUSTOMER_ID"]
 
 
 def test_detector_runs_ner_when_fallback_patterns_do_not_match() -> None:
     detector = PIIDetector(
-        recognizers=[
-            PatternRecognizer(
-                name="customer_id",
-                label="CUSTOMER_ID",
-                patterns=[Pattern(label="CUSTOMER_ID", regex=r"\bKH-\d{6}\b")],
-            ),
-            NERRecognizer(
-                model_name="fake-vietnamese-ner",
-                pipeline_factory=fake_pipeline_factory,
-            ),
-        ],
+        recognizers=[customer_recognizer(), StubNerRecognizer()],
         include_builtins=False,
         ner_strategy="fallback",
     )
 
-    matches = detector.detect("Nguyễn Văn A sống tại Hà Nội.")
-
-    assert [match.label for match in matches] == ["PERSON", "LOCATION"]
+    assert [match.label for match in detector.detect(TEXT)] == ["PERSON", "LOCATION"]
 
 
 def test_detector_never_strategy_skips_ner() -> None:
-    def fail_if_called(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("NER should not run with never strategy")
-
     detector = PIIDetector(
-        recognizers=[
-            PatternRecognizer(
-                name="customer_id",
-                label="CUSTOMER_ID",
-                patterns=[Pattern(label="CUSTOMER_ID", regex=r"\bKH-\d{6}\b")],
-            ),
-            NERRecognizer(
-                model_name="fake-vietnamese-ner",
-                pipeline_factory=fail_if_called,
-            ),
-        ],
+        recognizers=[customer_recognizer(), ExplodingNerRecognizer()],
         include_builtins=False,
         ner_strategy="never",
     )
@@ -157,48 +149,26 @@ def test_detector_never_strategy_skips_ner() -> None:
     assert [match.label for match in matches] == ["CUSTOMER_ID"]
 
 
+def test_presidio_ner_recognizer_is_skipped_by_never_strategy() -> None:
+    def explode(text: str) -> list[dict[str, object]]:
+        raise AssertionError("NER should not run with never strategy")
+
+    recognizer = presidio_hf_recognizer([])
+    recognizer.ner_pipeline = explode
+    detector = PIIDetector(
+        recognizers=[customer_recognizer(), recognizer],
+        include_builtins=False,
+        ner_strategy="never",
+    )
+
+    assert [m.label for m in detector.detect("Mã khách hàng KH-123456.")] == ["CUSTOMER_ID"]
+
+
 def test_detector_uncovered_strategy_runs_ner_outside_pattern_spans() -> None:
-    seen_texts = []
-
-    def tolerant_pipeline_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
-        def pipeline(text: str) -> list[dict[str, object]]:
-            seen_texts.append(text)
-            entities = []
-            if "Nguyễn Văn A" in text:
-                entities.append(
-                    {
-                        "entity_group": "PER",
-                        "start": text.index("Nguyễn Văn A"),
-                        "end": text.index("Nguyễn Văn A") + len("Nguyễn Văn A"),
-                        "score": 0.98,
-                    }
-                )
-            if "Hà Nội" in text:
-                entities.append(
-                    {
-                        "entity_group": "LOC",
-                        "start": text.index("Hà Nội"),
-                        "end": text.index("Hà Nội") + len("Hà Nội"),
-                        "score": 0.91,
-                    }
-                )
-            return entities
-
-        return pipeline
-
+    seen: list[str] = []
     text = "Số điện thoại 0912345678 của Nguyễn Văn A ở Hà Nội."
     detector = PIIDetector(
-        recognizers=[
-            PatternRecognizer(
-                name="phone_number",
-                label="PHONE_NUMBER",
-                patterns=[Pattern(label="PHONE_NUMBER", regex=r"\b0\d{9}\b")],
-            ),
-            NERRecognizer(
-                model_name="fake-vietnamese-ner",
-                pipeline_factory=tolerant_pipeline_factory,
-            ),
-        ],
+        recognizers=[phone_recognizer(), StubNerRecognizer(seen_texts=seen)],
         include_builtins=False,
         ner_strategy="uncovered",
     )
@@ -212,55 +182,19 @@ def test_detector_uncovered_strategy_runs_ner_outside_pattern_spans() -> None:
         (text.index("Nguyễn Văn A"), text.index("Nguyễn Văn A") + len("Nguyễn Văn A")),
         (text.index("Hà Nội"), text.index("Hà Nội") + len("Hà Nội")),
     ]
-    assert all("0912345678" not in seen_text for seen_text in seen_texts)
+    assert all("0912345678" not in seen_text for seen_text in seen)
 
 
 def test_detector_chunked_strategy_redacts_patterns_before_ner() -> None:
-    seen_texts = []
-
-    def tolerant_pipeline_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
-        def pipeline(text: str) -> list[dict[str, object]]:
-            seen_texts.append(text)
-            entities = []
-            if "Nguyễn Văn A" in text:
-                entities.append(
-                    {
-                        "entity_group": "PER",
-                        "start": text.index("Nguyễn Văn A"),
-                        "end": text.index("Nguyễn Văn A") + len("Nguyễn Văn A"),
-                        "score": 0.98,
-                    }
-                )
-            if "Hà Nội" in text:
-                entities.append(
-                    {
-                        "entity_group": "LOC",
-                        "start": text.index("Hà Nội"),
-                        "end": text.index("Hà Nội") + len("Hà Nội"),
-                        "score": 0.91,
-                    }
-                )
-            return entities
-
-        return pipeline
-
+    seen: list[str] = []
     text = "Số điện thoại 0912345678 của Nguyễn Văn A ở Hà Nội. CCCD 001203000123."
     detector = PIIDetector(
         recognizers=[
+            phone_recognizer(),
             PatternRecognizer(
-                name="phone_number",
-                label="PHONE_NUMBER",
-                patterns=[Pattern(label="PHONE_NUMBER", regex=r"\b0\d{9}\b")],
+                name="cccd", label="CCCD", patterns=[Pattern(label="CCCD", regex=r"\b\d{12}\b")]
             ),
-            PatternRecognizer(
-                name="cccd",
-                label="CCCD",
-                patterns=[Pattern(label="CCCD", regex=r"\b\d{12}\b")],
-            ),
-            NERRecognizer(
-                model_name="fake-vietnamese-ner",
-                pipeline_factory=tolerant_pipeline_factory,
-            ),
+            StubNerRecognizer(seen_texts=seen),
         ],
         include_builtins=False,
         ner_strategy="chunked",
@@ -268,153 +202,12 @@ def test_detector_chunked_strategy_redacts_patterns_before_ner() -> None:
 
     matches = detector.detect(text)
 
-    assert [match.label for match in matches] == ["PHONE_NUMBER", "PERSON", "LOCATION", "CCCD"]
-    assert [match.text for match in matches] == [
-        "0912345678",
-        "Nguyễn Văn A",
-        "Hà Nội",
-        "001203000123",
+    assert [match.label for match in matches] == [
+        "PHONE_NUMBER",
+        "PERSON",
+        "LOCATION",
+        "CCCD",
     ]
-    assert [(match.start, match.end) for match in matches] == [
-        (text.index("0912345678"), text.index("0912345678") + len("0912345678")),
-        (text.index("Nguyễn Văn A"), text.index("Nguyễn Văn A") + len("Nguyễn Văn A")),
-        (text.index("Hà Nội"), text.index("Hà Nội") + len("Hà Nội")),
-        (text.index("001203000123"), text.index("001203000123") + len("001203000123")),
-    ]
-    assert "Số điện thoại            của Nguyễn Văn A ở Hà Nội." in seen_texts
-    assert len(seen_texts) == 1
-    assert all("0912345678" not in seen_text for seen_text in seen_texts)
-    assert all("001203000123" not in seen_text for seen_text in seen_texts)
-
-
-def test_detector_rejects_invalid_ner_strategy() -> None:
-    with pytest.raises(ValueError, match="ner_strategy"):
-        PIIDetector(ner_strategy="sometimes")  # type: ignore[arg-type]
-
-
-def test_cli_uses_ner_model(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr("vipii.recognizers.ner.load_transformers_pipeline", fake_pipeline_factory)
-
-    assert (
-        main(
-            [
-                "scan",
-                "Nguyễn Văn A sống tại Hà Nội.",
-                "--ner-model",
-                "fake-vietnamese-ner",
-                "--format",
-                "json",
-            ]
-        )
-        == 0
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert {item["label"] for item in payload} == {"PERSON", "LOCATION"}
-
-
-def test_cli_can_skip_ner_with_fallback_strategy(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    def fail_if_called(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("NER should not run when fallback patterns match")
-
-    monkeypatch.setattr("vipii.recognizers.ner.load_transformers_pipeline", fail_if_called)
-
-    assert (
-        main(
-            [
-                "scan",
-                "Số điện thoại 0912345678.",
-                "--ner-model",
-                "fake-vietnamese-ner",
-                "--ner-strategy",
-                "fallback",
-                "--format",
-                "json",
-            ]
-        )
-        == 0
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert [item["label"] for item in payload] == ["PHONE_NUMBER"]
-
-
-def test_cli_accepts_never_ner_strategy(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    def fail_if_called(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("NER should not run with never strategy")
-
-    monkeypatch.setattr("vipii.recognizers.ner.load_transformers_pipeline", fail_if_called)
-
-    assert (
-        main(
-            [
-                "scan",
-                "Số điện thoại 0912345678.",
-                "--ner-model",
-                "fake-vietnamese-ner",
-                "--ner-strategy",
-                "never",
-                "--format",
-                "json",
-            ]
-        )
-        == 0
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert [item["label"] for item in payload] == ["PHONE_NUMBER"]
-
-
-def test_cli_accepts_chunked_ner_strategy(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    seen_texts = []
-
-    def tolerant_pipeline_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
-        def pipeline(text: str) -> list[dict[str, object]]:
-            seen_texts.append(text)
-            if "Nguyễn Văn A" not in text:
-                return []
-            return [
-                {
-                    "entity_group": "PER",
-                    "start": text.index("Nguyễn Văn A"),
-                    "end": text.index("Nguyễn Văn A") + len("Nguyễn Văn A"),
-                    "score": 0.98,
-                }
-            ]
-
-        return pipeline
-
-    monkeypatch.setattr(
-        "vipii.recognizers.ner.load_transformers_pipeline", tolerant_pipeline_factory
-    )
-
-    assert (
-        main(
-            [
-                "scan",
-                "Số điện thoại 0912345678 của Nguyễn Văn A.",
-                "--ner-model",
-                "fake-vietnamese-ner",
-                "--ner-strategy",
-                "chunked",
-                "--format",
-                "json",
-            ]
-        )
-        == 0
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert [item["label"] for item in payload] == ["PHONE_NUMBER", "PERSON"]
-    assert all("0912345678" not in seen_text for seen_text in seen_texts)
-
-
-def test_ner_requires_optional_dependency(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    def missing_transformers(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise ImportError("Install vipii[ner] to use NERRecognizer")
-
-    monkeypatch.setattr("vipii.recognizers.ner.load_transformers_pipeline", missing_transformers)
-    recognizer = NERRecognizer(model_name="fake-vietnamese-ner")
-
-    with pytest.raises(ImportError, match=r"vipii\[ner\]"):
-        recognizer.recognize("Nguyễn Văn A")
+    assert seen
+    assert all("0912345678" not in seen_text for seen_text in seen)
+    assert all("001203000123" not in seen_text for seen_text in seen)

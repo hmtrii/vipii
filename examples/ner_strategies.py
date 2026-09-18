@@ -7,13 +7,52 @@ Run from the repository after installing the package:
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from presidio_analyzer import EntityRecognizer, RecognizerResult
 
-from vipii import NERRecognizer, Pattern, PatternRecognizer, PIIDetector
+from vipii import Pattern, PatternRecognizer, PIIDetector
 
 TEXT = "Số điện thoại 0912345678 của Nguyễn Văn A ở Hà Nội. CCCD 001203000123."
 STRATEGIES = ["always", "fallback", "uncovered", "chunked", "never"]
+ENTITIES = {"Nguyễn Văn A": "PERSON", "Hà Nội": "LOCATION"}
+
+
+class FakeNerRecognizer(EntityRecognizer):
+    """Stand in for a real model so this example needs no downloads.
+
+    `vipii_is_ner = True` opts a recognizer into the detector's NER strategies.
+    A real deployment would use `PIIDetector(ner_model=...)`, which builds
+    Presidio's `HuggingFaceNerRecognizer`.
+    """
+
+    vipii_is_ner = True
+
+    def __init__(self, seen_texts: list[str]) -> None:
+        self.seen_texts = seen_texts
+        super().__init__(
+            supported_entities=sorted(set(ENTITIES.values())),
+            name="ner",
+            supported_language="vi",
+        )
+
+    def load(self) -> None:
+        """No resources are required."""
+
+    def analyze(self, text, entities, nlp_artifacts=None):  # type: ignore[no-untyped-def]
+        del entities, nlp_artifacts
+        self.seen_texts.append(text)
+        results = []
+        for phrase, label in ENTITIES.items():
+            start = text.find(phrase)
+            if start >= 0:
+                results.append(
+                    RecognizerResult(
+                        entity_type=label,
+                        start=start,
+                        end=start + len(phrase),
+                        score=0.98 if label == "PERSON" else 0.91,
+                    )
+                )
+        return results
 
 
 def main() -> None:
@@ -55,50 +94,11 @@ def detector_for_strategy(strategy: str, seen_texts: list[str]) -> PIIDetector:
                 label="CCCD",
                 patterns=[Pattern(label="CCCD", regex=r"\b\d{12}\b")],
             ),
-            NERRecognizer(
-                model_name="fake-vietnamese-ner",
-                pipeline_factory=fake_pipeline_factory(seen_texts),
-            ),
+            FakeNerRecognizer(seen_texts),
         ],
         include_builtins=False,
         ner_strategy=strategy,  # type: ignore[arg-type]
     )
-
-
-def fake_pipeline_factory(
-    seen_texts: list[str],
-) -> Callable[..., Callable[[str], list[dict[str, Any]]]]:
-    def factory(*args: Any, **kwargs: Any) -> Callable[[str], list[dict[str, Any]]]:
-        def pipeline(text: str) -> list[dict[str, Any]]:
-            seen_texts.append(text)
-            return fake_entities(text)
-
-        return pipeline
-
-    return factory
-
-
-def fake_entities(text: str) -> list[dict[str, Any]]:
-    entities = []
-    if "Nguyễn Văn A" in text:
-        entities.append(
-            {
-                "entity_group": "PER",
-                "start": text.index("Nguyễn Văn A"),
-                "end": text.index("Nguyễn Văn A") + len("Nguyễn Văn A"),
-                "score": 0.98,
-            }
-        )
-    if "Hà Nội" in text:
-        entities.append(
-            {
-                "entity_group": "LOC",
-                "start": text.index("Hà Nội"),
-                "end": text.index("Hà Nội") + len("Hà Nội"),
-                "score": 0.91,
-            }
-        )
-    return entities
 
 
 if __name__ == "__main__":

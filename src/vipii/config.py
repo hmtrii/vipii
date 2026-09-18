@@ -1,21 +1,13 @@
-"""YAML recognizer configuration loading."""
+"""YAML recognizer configuration loading for user-supplied configs."""
 
 from __future__ import annotations
 
 import ast
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
 from vipii.models import Pattern
 from vipii.recognizers import PatternRecognizer, validator_by_name
-
-BUILTIN_CONFIG = "builtin_recognizers.yml"
-
-
-def load_builtin_recognizers() -> list[PatternRecognizer]:
-    with resources.files("vipii").joinpath(BUILTIN_CONFIG).open(encoding="utf-8") as config:
-        return recognizers_from_config(load_yaml_text(config.read(), source=BUILTIN_CONFIG))
 
 
 def load_recognizers_from_yaml(path: str | Path) -> list[PatternRecognizer]:

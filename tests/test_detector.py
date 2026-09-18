@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from threading import Barrier
+from presidio_analyzer import (
+    AnalyzerEngine,
+    EntityRecognizer,
+    RecognizerRegistry,
+    RecognizerResult,
+)
 
-import pytest
-
-from vipii import Pattern, PIIDetector
-from vipii.models import PIIMatch
+from vipii import Pattern, PatternRecognizer, PIIDetector
 
 
 def labels(text: str) -> set[str]:
@@ -97,40 +99,143 @@ def test_detector_can_be_created_without_builtin_recognizers() -> None:
     assert PIIDetector(include_builtins=False).detect("Số điện thoại 0912345678.") == []
 
 
-class BarrierRecognizer:
-    def __init__(self, name: str, barrier: Barrier) -> None:
-        self.name = name
-        self.barrier = barrier
+class RecordingRecognizer(EntityRecognizer):
+    def __init__(self, name: str, calls: list[str]) -> None:
+        self.calls = calls
+        super().__init__(supported_entities=[name.upper()], name=name, supported_language="vi")
 
-    def recognize(self, text: str) -> list[PIIMatch]:
-        self.barrier.wait(timeout=5)
+    def load(self) -> None:
+        """No resources are required."""
+
+    def analyze(self, text, entities, nlp_artifacts=None):  # type: ignore[no-untyped-def]
+        self.calls.append(self.name)
         return [
-            PIIMatch(
-                label=self.name.upper(),
+            RecognizerResult(
+                entity_type=self.name.upper(),
                 start=0,
                 end=len(text),
-                text=text,
                 score=0.5,
-                recognizer=self.name,
             )
         ]
 
 
-def test_detect_runs_recognizers_concurrently() -> None:
-    barrier = Barrier(2)
+def test_detect_runs_recognizers_through_presidio() -> None:
+    calls: list[str] = []
     detector = PIIDetector(
         recognizers=[
-            BarrierRecognizer("first", barrier),
-            BarrierRecognizer("second", barrier),
+            RecordingRecognizer("first", calls),
+            RecordingRecognizer("second", calls),
         ],
         include_builtins=False,
     )
 
     matches = detector.detect("abc")
 
+    assert isinstance(detector.analyzer, AnalyzerEngine)
+    assert isinstance(detector.registry, RecognizerRegistry)
+    assert set(calls) == {"first", "second"}
     assert [match.label for match in matches] == ["SECOND"]
 
 
-def test_detector_rejects_invalid_max_workers() -> None:
-    with pytest.raises(ValueError, match="max_workers"):
-        PIIDetector(max_workers=0)
+def test_builtin_recognizers_are_native_presidio_recognizers() -> None:
+    from presidio_analyzer import PatternRecognizer as PresidioPatternRecognizer
+
+    recognizers = PIIDetector().registry.recognizers
+
+    assert recognizers
+    assert all(isinstance(r, PresidioPatternRecognizer) for r in recognizers)
+
+
+def test_empty_detector_does_not_inherit_presidio_default_recognizers() -> None:
+    entities = set(PIIDetector(include_builtins=False).supported_entities())
+
+    assert not entities & {"CREDIT_CARD", "US_SSN", "IBAN_CODE", "EMAIL_ADDRESS"}
+
+
+def test_detect_filters_to_requested_entities() -> None:
+    text = "Số điện thoại 0912345678 và email khach@example.vn."
+
+    matches = PIIDetector().detect(text, entities=["EMAIL_ADDRESS"])
+
+    assert [match.label for match in matches] == ["EMAIL_ADDRESS"]
+
+
+def test_detect_honours_allow_list() -> None:
+    text = "Liên hệ khach@example.vn."
+
+    assert PIIDetector().detect(text, allow_list=["khach@example.vn"]) == []
+
+
+def test_detect_honours_score_threshold() -> None:
+    text = "Liên hệ 0912345678."
+
+    assert PIIDetector().detect(text, score_threshold=0.99) == []
+
+
+def test_detect_batch_matches_per_text_detection() -> None:
+    texts = [
+        "Số điện thoại 0912345678.",
+        "CCCD 001203000123.",
+        "Không có dữ liệu định danh.",
+    ]
+    detector = PIIDetector()
+
+    assert detector.detect_batch(texts) == [detector.detect(text) for text in texts]
+
+
+def test_redact_accepts_presidio_operators() -> None:
+    from presidio_anonymizer.entities import OperatorConfig
+
+    redacted = PIIDetector().redact(
+        "Số điện thoại 0912345678.",
+        operators={"DEFAULT": OperatorConfig("replace", {"new_value": "<PII>"})},
+    )
+
+    assert redacted == "Số điện thoại <PII>."
+
+
+def test_pattern_analyzer_is_reused_when_there_is_no_ner_recognizer() -> None:
+    detector = PIIDetector()
+
+    assert detector.ner_recognizers == []
+    assert detector.pattern_analyzer is detector.analyzer
+
+
+def test_recognizer_views_split_patterns_from_ner() -> None:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from _ner_helpers import StubNerRecognizer
+
+    pattern = PatternRecognizer(
+        name="phone_number",
+        label="PHONE_NUMBER",
+        patterns=[Pattern(label="PHONE_NUMBER", regex=r"\b0\d{9}\b")],
+    )
+    ner = StubNerRecognizer()
+    detector = PIIDetector(recognizers=[pattern, ner], include_builtins=False)
+
+    assert detector.pattern_recognizers == [pattern]
+    assert detector.ner_recognizers == [ner]
+    assert detector.pattern_analyzer is not detector.analyzer
+    assert detector.ner_analyzer is not detector.analyzer
+
+
+def test_adding_a_recognizer_rebuilds_the_analyzers() -> None:
+    detector = PIIDetector()
+    before = detector.analyzer
+
+    detector.add_pattern(Pattern(label="CUSTOMER_ID", regex=r"\bKH-\d{6}\b"))
+
+    assert detector.analyzer is not before
+    assert [m.label for m in detector.detect("Mã KH-123456.")] == ["CUSTOMER_ID"]
+
+
+def test_analyze_returns_raw_presidio_results() -> None:
+    from presidio_analyzer import RecognizerResult as PresidioResult
+
+    results = PIIDetector().analyze("Số điện thoại 0912345678.")
+
+    assert results
+    assert all(isinstance(result, PresidioResult) for result in results)

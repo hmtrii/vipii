@@ -1,5 +1,8 @@
 """Use an optional Hugging Face NER model.
 
+Backed by Presidio's HuggingFaceNerRecognizer, which needs the `vipii[ner]` extra
+(transformers and torch) at construction time.
+
 Run from the repository after installing the optional dependencies:
 
     VIPII_RUN_NER=1 python examples/ner_model.py
